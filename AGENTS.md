@@ -448,70 +448,34 @@ new Terminal({
 
 ---
 
-## 9. Dashboard: Skills, Agents, Commands
+## 9. Sidebar Explorer y .opencode Files
 
 ### Layout de la Página de Proyecto
 
-La página `/project/[id]` usa un **layout vertical** donde:
-- **Área principal** (arriba, ~70% del viewport): Dashboard con tabs para Comandos, Skills, Agents
-- **Terminal** (abajo, ~30% del viewport): Panel colapsable con xterm.js
+La página `/project/[id]` usa un **layout de tres paneles ajustado**:
+- **Sidebar Izquierdo** (colapsable): Explorador de archivos del proyecto visual (`/fs-tree`).
+- **Área principal** (centro): Dashboard con tabs para Comandos, Skills, Agents.
+- **Terminal** (abajo, expandible): Panel con xterm.js conectado al sandbox.
 
-Los comandos son la funcionalidad principal (accesos rápidos ejecutables).
-La terminal es una herramienta secundaria que se expande/colapsa.
+### Gestor de Skills y Agents (`.opencode`)
 
-### Scope: Global vs Per-Project
+A diferencia de los comandos (que aún se guardan en `localStorage`), **los Skills y los Agents se guardan como archivos Markdown (.md)** físicos dentro de las carpetas `.opencode` para cumplir con el estándar The OpenCode.
 
-**Skills** y **Agents** tienen dos scopes:
-- **📁 Proyecto**: Solo visibles en el proyecto actual (`oc-skills-{projectId}`)
-- **🌐 Global**: Visibles en TODOS los proyectos del usuario (`oc-skills-global`)
+Existen dos *scopes* físicos:
+- **📁 Proyecto**: Archivos guardados en el contenedor sandbox en la subcarpeta del proyecto (`/workspace/projects/<id>/.opencode/{agents|skills}`).
+- **🌐 Global**: Archivos guardados en el workspace root del contenedor que se comparten entre proyectos (`/workspace/.opencode/{agents|skills}`).
 
-El scope se selecciona al crear/editar mediante radio buttons. Un toggle en la toolbar cambia la vista entre project y global.
+### Frontend Integration
 
-**Commands** son siempre per-project (no tienen scope global).
+Al consultar Skills o Agents en el frontend:
+1. El frontend consume `/api/opencode-files?projectId=<id>` y `/api/opencode-files-global`.
+2. Muestra los elementos en las tarjetas correspondientes.
+3. En la vista **"Global"**, cada *agent/skill* tiene un checkbox.
+4. Si el usuario marca el checkbox global, se hace un POST llamando de nuevo a la API para "activar/copiar" ese elemento a la configuración local del proyecto, y se vuelve a renderizar el árbol lateral donde se visualiza `.opencode`.
 
-### Estructura de datos
+### Explorador de Archivos (fs-tree)
 
-```typescript
-interface SkillItem {
-  id: string;
-  name: string;
-  content: string;
-  description?: string;
-  scope: 'project' | 'global';  // ← NUEVO: alcance del skill
-}
-
-interface AgentItem {
-  id: string;
-  name: string;
-  systemPrompt: string;
-  description?: string;
-  model: string;
-  scope: 'project' | 'global';  // ← NUEVO: alcance del agent
-}
-
-interface CommandItem {
-  id: string;
-  name: string;
-  command: string;
-  description?: string;
-  icon: string;
-}
-```
-
-### Storage Keys
-
-| Key | Scope | Descripción |
-|-----|-------|-------------|
-| `oc-commands-{projectId}` | Proyecto | Comandos del proyecto |
-| `oc-skills-{projectId}` | Proyecto | Skills del proyecto |
-| `oc-skills-global` | Global | Skills compartidos |
-| `oc-agents-{projectId}` | Proyecto | Agents del proyecto |
-| `oc-agents-global` | Global | Agents compartidos |
-
-### Almacenamiento
-
-- **Actual:** `localStorage` con keys separadas por scope
-- **Futuro (Recomendado):** Tablas Supabase con RLS y columna `scope`
+El sidebar ahora cuenta con un sistema de File Tree alimentado por el endpoint `/fs-tree` del sandbox. Este expone toda la estructura de directorios del proyecto, obviando carpetas de cache internas y `node_modules` o `.git` por limpieza visual. Utiliza interactividad vanilla y simple, estilo VS Code.
 
 ---
 

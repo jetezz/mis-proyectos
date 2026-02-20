@@ -6,7 +6,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     ports:
       - "4321:4321"
     environment:
@@ -46,6 +46,7 @@ services:
       - "4000:4000"  # Expuesto en dev para debugging
     volumes:
       - ./workspace/projects:/workspace/projects
+      - ./.opencode:/workspace/.opencode
     networks:
       - internal
 

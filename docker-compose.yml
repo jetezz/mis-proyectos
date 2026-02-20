@@ -40,6 +40,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./workspace/projects:/workspace/projects
+      - ./.opencode:/workspace/.opencode
     networks:
       - internal
     security_opt:

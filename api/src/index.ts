@@ -139,6 +139,47 @@ const server = Bun.serve<TerminalSession>({
         return addCors(await runAgent(user, await req.json()), cors);
       }
 
+      // ── File System Tree (proxy to sandbox) ────────────────────
+      if (url.pathname === '/fs-tree' && method === 'GET') {
+        const projectId = url.searchParams.get('projectId');
+        if (!projectId) return Response.json({ message: 'Missing projectId' }, { status: 400, headers: cors });
+        assertProjectOwner(user, projectId);
+        const sandboxRes = await fetch(`${SANDBOX_URL}/fs-tree?projectId=${encodeURIComponent(projectId)}`);
+        const data = await sandboxRes.json();
+        return addCors(Response.json(data, { status: sandboxRes.status }), cors);
+      }
+
+      // ── OpenCode Files (proxy to sandbox) ────────────────────
+      if (url.pathname === '/opencode-files') {
+        if (method === 'GET') {
+          const projectId = url.searchParams.get('projectId');
+          if (!projectId) return Response.json({ message: 'Missing projectId' }, { status: 400, headers: cors });
+          assertProjectOwner(user, projectId);
+          const sandboxRes = await fetch(`${SANDBOX_URL}/opencode-files?projectId=${encodeURIComponent(projectId)}`);
+          const data = await sandboxRes.json();
+          return addCors(Response.json(data, { status: sandboxRes.status }), cors);
+        }
+        if (method === 'POST' || method === 'DELETE') {
+          const body = await req.json();
+          if (body.projectId) assertProjectOwner(user, body.projectId);
+          const sandboxRes = await fetch(`${SANDBOX_URL}/opencode-files`, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await sandboxRes.json();
+          return addCors(Response.json(data, { status: sandboxRes.status }), cors);
+        }
+      }
+
+      // ── List global .opencode files (proxy to sandbox) ────────
+      if (url.pathname === '/opencode-files/global' && method === 'GET') {
+        // Global files are at the workspace level, use a special "global" marker
+        const sandboxRes = await fetch(`${SANDBOX_URL}/opencode-files?projectId=__global__`);
+        const data = await sandboxRes.json();
+        return addCors(Response.json(data, { status: sandboxRes.status }), cors);
+      }
+
       return Response.json({ message: 'Not found' }, { status: 404, headers: cors });
 
     } catch (err) {

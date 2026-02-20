@@ -45,6 +45,9 @@ if (token) {
     </div>
     <div class="header-right">
       <span id="terminal-status" class="term-badge">● Conectando...</span>
+      <button id="sidebar-toggle" class="header-icon-btn" title="Toggle File Explorer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+      </button>
       <button id="terminal-toggle" class="header-icon-btn" title="Toggle Terminal">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
       </button>
@@ -52,6 +55,21 @@ if (token) {
   </header>
 
   <div class="project-layout">
+    <!-- File Explorer Sidebar -->
+    <aside class="file-sidebar" id="file-sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">📁 Explorer</span>
+        <button class="sidebar-close-btn" id="sidebar-close" title="Cerrar sidebar">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="sidebar-file-tree" id="file-tree">
+        <span class="sidebar-loading">Cargando proyecto...</span>
+      </div>
+    </aside>
+
+    <!-- Content wrapper (main + terminal) -->
+    <div class="content-wrapper">
     <!-- Main Content Area -->
     <main class="main-area" id="main-area">
       <!-- Tab Navigation -->
@@ -128,6 +146,7 @@ if (token) {
       </div>
       <div id="xterm-container"></div>
     </div>
+    </div> <!-- end content-wrapper -->
   </div>
 
   <!-- Create/Edit Modal (global overlay) -->
@@ -463,85 +482,142 @@ if (token) {
     bindEvents(el);
   }
 
+  // --- Opencode Files Data ---
+  interface OpenCodeFile {
+    filename: string;
+    name: string;
+    description: string;
+    type: 'agents' | 'skills';
+    isDirectory?: boolean;
+  }
+  let projectOpencode: { agents: OpenCodeFile[]; skills: OpenCodeFile[] } = { agents: [], skills: [] };
+  let globalOpencode: { agents: OpenCodeFile[]; skills: OpenCodeFile[] } = { agents: [], skills: [] };
+
   function renderSkills() {
     const el = document.getElementById('skills-list')!;
-    const items = currentSkillScope === 'global' ? skillsGlobal : skillsProject;
-    const scopeLabel = currentSkillScope === 'global' ? 'globales' : 'de este proyecto';
+    const isGlobal = currentSkillScope === 'global';
+    const items = isGlobal ? globalOpencode.skills : projectOpencode.skills;
+    const scopeLabel = isGlobal ? 'globales' : 'de este proyecto';
+
     if (items.length === 0) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.file}</div><p>Sin skills ${scopeLabel}</p><small>${currentSkillScope === 'global' ? 'Los skills globales se comparten en todos tus proyectos' : 'Crea instrucciones y contexto para tus agentes'}</small></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.file}</div><p>Sin skills ${scopeLabel}</p><small>${isGlobal ? 'Los skills globales se comparten en todos tus proyectos' : 'Crea instrucciones y contexto para tus agentes'}</small></div>`;
       return;
     }
-    el.innerHTML = items.map(s => `
-      <div class="item-card skill-card" data-id="${s.id}">
+
+    el.innerHTML = items.map(s => {
+      const isChecked = projectOpencode.skills.some(ps => ps.filename === s.filename);
+      const checkboxHtml = isGlobal ? `
+        <label class="skill-agent-checkbox">
+          <input type="checkbox" data-filename="${h(s.filename)}" data-type="skills" class="opencode-toggle-check" ${isChecked ? 'checked' : ''} />
+          <span class="checkmark"></span>
+        </label>
+      ` : '';
+
+      return `
+      <div class="item-card skill-card" data-filename="${h(s.filename)}">
         <div class="card-info-row">
-          <div class="card-icon-wrap skill-icon">${ICONS.file}</div>
+          ${checkboxHtml}
+          <div class="card-icon-wrap skill-icon">${s.isDirectory ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>' : ICONS.file}</div>
           <div class="card-body">
             <div class="card-name-row">
               <span class="card-name">${h(s.name)}</span>
-              ${scopePill(s.scope)}
             </div>
-            <span class="card-meta">${h((s.description || s.content.slice(0, 100)) + (s.content.length > 100 ? '...' : ''))}</span>
+            <span class="card-meta">${h((s.description || '').slice(0, 100) + ((s.description || '').length > 100 ? '...' : ''))}</span>
           </div>
         </div>
-        ${actionBtns(s.id, 'skill')}
       </div>
-    `).join('');
-    bindEvents(el);
+      `;
+    }).join('');
+    bindCheckboxEvents(el);
   }
 
   function renderAgents() {
     const el = document.getElementById('agents-list')!;
-    const items = currentAgentScope === 'global' ? agentsGlobal : agentsProject;
-    const scopeLabel = currentAgentScope === 'global' ? 'globales' : 'de este proyecto';
+    const isGlobal = currentAgentScope === 'global';
+    const items = isGlobal ? globalOpencode.agents : projectOpencode.agents;
+    const scopeLabel = isGlobal ? 'globales' : 'de este proyecto';
+
     if (items.length === 0) {
-      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.bot}</div><p>Sin agents ${scopeLabel}</p><small>${currentAgentScope === 'global' ? 'Los agents globales se comparten en todos tus proyectos' : 'Configura agentes IA con prompts personalizados'}</small></div>`;
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.bot}</div><p>Sin agents ${scopeLabel}</p><small>${isGlobal ? 'Los agents globales se comparten en todos tus proyectos' : 'Configura agentes IA con prompts personalizados'}</small></div>`;
       return;
     }
-    el.innerHTML = items.map(a => `
-      <div class="item-card agent-card" data-id="${a.id}">
+
+    el.innerHTML = items.map(a => {
+      const isChecked = projectOpencode.agents.some(pa => pa.filename === a.filename);
+      const checkboxHtml = isGlobal ? `
+        <label class="skill-agent-checkbox">
+          <input type="checkbox" data-filename="${h(a.filename)}" data-type="agents" class="opencode-toggle-check" ${isChecked ? 'checked' : ''} />
+          <span class="checkmark"></span>
+        </label>
+      ` : '';
+
+      return `
+      <div class="item-card agent-card" data-filename="${h(a.filename)}">
         <div class="card-info-row">
-          <div class="card-icon-wrap agent-icon">${ICONS.bot}</div>
+          ${checkboxHtml}
+          <div class="card-icon-wrap agent-icon">${a.isDirectory ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>' : ICONS.bot}</div>
           <div class="card-body">
             <div class="card-name-row">
               <span class="card-name">${h(a.name)}</span>
-              ${scopePill(a.scope)}
             </div>
-            <span class="card-meta">${h((a.description || a.systemPrompt.slice(0, 100)) + (a.systemPrompt.length > 100 ? '...' : ''))}</span>
+            <span class="card-meta">${h((a.description || '').slice(0, 100) + ((a.description || '').length > 100 ? '...' : ''))}</span>
           </div>
         </div>
-        ${actionBtns(a.id, 'agent')}
       </div>
-    `).join('');
-    bindEvents(el);
+      `;
+    }).join('');
+    bindCheckboxEvents(el);
   }
 
   function bindEvents(el: HTMLElement) {
     el.querySelectorAll('.card-exec').forEach(btn => {
       btn.addEventListener('click', () => executeInTerminal((btn as HTMLElement).dataset.cmd!));
     });
-    el.querySelectorAll('.edit-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = (btn as HTMLElement).dataset.id!;
-        const type = (btn as HTMLElement).dataset.type as 'command' | 'skill' | 'agent';
-        let item;
-        if (type === 'command') item = commands.find(c => c.id === id);
-        else if (type === 'skill') item = [...skillsProject, ...skillsGlobal].find(s => s.id === id);
-        else item = [...agentsProject, ...agentsGlobal].find(a => a.id === id);
-        if (item) showForm(type, item);
-      });
-    });
     el.querySelectorAll('.delete-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = (btn as HTMLElement).dataset.id!;
-        const type = (btn as HTMLElement).dataset.type as 'command' | 'skill' | 'agent';
-        if (!confirm('¿Eliminar este item?')) return;
-        if (type === 'command') { commands = commands.filter(c => c.id !== id); localStorage.setItem(SK_COMMANDS, JSON.stringify(commands)); renderCommands(); }
-        else if (type === 'skill') {
-          skillsProject = skillsProject.filter(s => s.id !== id); skillsGlobal = skillsGlobal.filter(s => s.id !== id);
-          localStorage.setItem(SK_SKILLS_PROJECT, JSON.stringify(skillsProject)); localStorage.setItem(SK_SKILLS_GLOBAL, JSON.stringify(skillsGlobal)); renderSkills();
-        } else {
-          agentsProject = agentsProject.filter(a => a.id !== id); agentsGlobal = agentsGlobal.filter(a => a.id !== id);
-          localStorage.setItem(SK_AGENTS_PROJECT, JSON.stringify(agentsProject)); localStorage.setItem(SK_AGENTS_GLOBAL, JSON.stringify(agentsGlobal)); renderAgents();
+        if (!confirm('¿Eliminar este comando?')) return;
+        commands = commands.filter(c => c.id !== id); localStorage.setItem(SK_COMMANDS, JSON.stringify(commands)); renderCommands();
+      });
+    });
+  }
+
+  function bindCheckboxEvents(el: HTMLElement) {
+    el.querySelectorAll('.opencode-toggle-check').forEach(cb => {
+      cb.addEventListener('change', async (e) => {
+        const input = e.target as HTMLInputElement;
+        const filename = input.dataset.filename!;
+        const type = input.dataset.type as 'agents' | 'skills';
+        const checked = input.checked;
+        const token = await getAccessToken();
+        if (!token) return;
+
+        input.disabled = true;
+        const card = input.closest('.item-card');
+        card?.classList.add('processing');
+
+        try {
+          if (checked) {
+            await fetch('/api/opencode-files', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ projectId, type, filename })
+            });
+          } else {
+            await fetch('/api/opencode-files', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({ projectId, type, filename })
+            });
+          }
+          await loadOpencodeFiles(); // Reload files
+          if (sidebarOpen) loadFsTree(); // Refresh tree view to reflect new opencode folder
+        } catch (err) {
+          console.error('Error toggling file:', err);
+          input.checked = !checked;
+        } finally {
+          input.disabled = false;
+          card?.classList.remove('processing');
         }
       });
     });
@@ -550,14 +626,117 @@ if (token) {
   function h(s: string) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
   function esc(s: string) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+  // ── API Loads ───────────────────────────────────────────────────
+  async function loadOpencodeFiles() {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const [resProj, resGlob] = await Promise.all([
+        fetch(`/api/opencode-files?projectId=${encodeURIComponent(projectId)}`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/opencode-files-global', { headers: { 'Authorization': `Bearer ${token}` } })
+      ]);
+      if (resProj.ok) projectOpencode = await resProj.json();
+      if (resGlob.ok) globalOpencode = await resGlob.json();
+    } catch (e) { console.error('Error loading opencode files', e); }
+    renderSkills();
+    renderAgents();
+  }
+
   // ── Init ────────────────────────────────────────────────────────
   renderCommands();
-  renderSkills();
-  renderAgents();
+  loadOpencodeFiles();
   initTerminal();
+
+  // ── Sidebar File Explorer ──────────────────────────────────────
+  const fileSidebar = document.getElementById('file-sidebar')!;
+  let sidebarOpen = false;
+
+  function toggleSidebar() {
+    sidebarOpen = !sidebarOpen;
+    fileSidebar.classList.toggle('open', sidebarOpen);
+    document.getElementById('sidebar-toggle')?.classList.toggle('active', sidebarOpen);
+    if (sidebarOpen) loadFsTree();
+  }
+
+  document.getElementById('sidebar-toggle')?.addEventListener('click', toggleSidebar);
+  document.getElementById('sidebar-close')?.addEventListener('click', () => {
+    sidebarOpen = false;
+    fileSidebar.classList.remove('open');
+    document.getElementById('sidebar-toggle')?.classList.remove('active');
+  });
+
+  async function loadFsTree() {
+    const container = document.getElementById('file-tree')!;
+    container.innerHTML = '<span class="sidebar-loading">Cargando...</span>';
+    const token = await getAccessToken();
+    if (!token) return;
+
+    try {
+      const res = await fetch(`/api/fs-tree?projectId=${encodeURIComponent(projectId)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        renderFsTree(data.tree, container);
+      } else {
+        container.innerHTML = '<span class="sidebar-loading">Error al cargar proyecto</span>';
+      }
+    } catch (e) {
+      container.innerHTML = '<span class="sidebar-loading">Error de conexión</span>';
+      console.error(e);
+    }
+  }
+
+  function renderFsTree(tree: any[], container: HTMLElement) {
+    if (!tree || tree.length === 0) {
+      container.innerHTML = '<span class="sidebar-empty">Carpeta vacía</span>';
+      return;
+    }
+    
+    function generateHtml(nodes: any[], openPath = ''): string {
+      return nodes.map(node => {
+        if (node.type === 'directory') {
+          const currentPath = openPath ? `${openPath}/${node.name}` : node.name;
+          const isOpen = currentPath === '.opencode';
+          const openStr = isOpen ? 'open' : '';
+          
+          let myFolderColor = '';
+          if (currentPath.startsWith('.opencode/agents')) myFolderColor = 'tree-agent';
+          else if (currentPath.startsWith('.opencode/skills')) myFolderColor = 'tree-skill';
+
+          return `
+            <div class="tree-node">
+              <div class="tree-folder ${myFolderColor}" onclick="this.nextElementSibling.classList.toggle('open'); this.querySelector('.tree-arrow').classList.toggle('open')">
+                <span class="tree-arrow ${openStr}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg></span>
+                <span class="tree-folder-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>
+                <span>${h(node.name)}</span>
+              </div>
+              <div class="tree-children ${openStr}" style="padding-left: 12px;">
+                ${generateHtml(node.children || [], currentPath)}
+              </div>
+            </div>
+          `;
+        } else {
+          let myFileColor = '';
+          if (openPath.startsWith('.opencode/agents')) myFileColor = 'tree-agent';
+          else if (openPath.startsWith('.opencode/skills')) myFileColor = 'tree-skill';
+
+          return `
+            <div class="tree-file ${myFileColor}">
+              <span class="tree-arrow"></span>
+              <span class="tree-file-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg></span>
+              <span>${h(node.name)}</span>
+            </div>
+          `;
+        }
+      }).join('');
+    }
+
+    container.innerHTML = generateHtml(tree);
+  }
 </script>
 
-<style>
+<style is:global>
   /* ── Header ────────────────────────────────────────────────────── */
   .project-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -584,12 +763,119 @@ if (token) {
     color: var(--text-secondary); transition: all 0.2s; cursor: pointer;
   }
   .header-icon-btn:hover { background: var(--bg-card-hover); color: var(--accent); border-color: var(--accent); }
+  .header-icon-btn.active { background: rgba(91,91,246,0.15); color: var(--accent); border-color: var(--accent); }
 
   /* ── Layout ────────────────────────────────────────────────────── */
   .project-layout {
-    display: flex; flex-direction: column; height: calc(100vh - 48px); overflow: hidden;
+    display: flex; flex-direction: row; height: calc(100vh - 48px); overflow: hidden;
+  }
+  .content-wrapper {
+    display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden;
   }
   .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+
+  /* ── File Sidebar ─────────────────────────────────────────────── */
+  .file-sidebar {
+    width: 0; min-width: 0; max-width: 0;
+    background: rgba(14,14,22,0.98); backdrop-filter: blur(12px);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+  }
+  .file-sidebar.open {
+    width: 280px; min-width: 280px; max-width: 280px;
+  }
+  .sidebar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.625rem 0.875rem; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar-title {
+    font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--text-secondary);
+  }
+  .sidebar-close-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 4px;
+    background: transparent; border: none; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .sidebar-close-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+  .sidebar-file-tree {
+    flex: 1; overflow-y: auto; padding: 0.5rem 0;
+  }
+  .sidebar-loading, .sidebar-empty {
+    display: block; padding: 0.75rem 0.875rem;
+    font-size: 0.75rem; color: var(--text-muted); font-style: italic;
+  }
+
+  /* File Tree styles */
+  .tree-folder, .tree-file {
+    display: flex; align-items: center; gap: 0.375rem;
+    padding: 0.25rem 0.75rem;
+    cursor: pointer; user-select: none;
+    font-size: 0.8125rem; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background 0.15s;
+  }
+  .tree-folder:hover, .tree-file:hover {
+    background: rgba(255,255,255,0.04);
+  }
+  .tree-folder-icon, .tree-file-icon {
+    width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); flex-shrink: 0;
+  }
+  .tree-file-icon { color: var(--text-secondary); }
+  .tree-arrow {
+    width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s; color: var(--text-muted); flex-shrink: 0;
+  }
+  .tree-arrow.open { transform: rotate(90deg); }
+  .tree-children {
+    display: none; flex-direction: column;
+  }
+  .tree-children.open {
+    display: flex;
+  }
+  
+  .tree-agent { color: #ef4444 !important; font-weight: 500; }
+  .tree-agent .tree-folder-icon, .tree-agent .tree-file-icon { color: #ef4444 !important; }
+  
+  .tree-skill { color: #3b82f6 !important; font-weight: 500; }
+  .tree-skill .tree-folder-icon, .tree-skill .tree-file-icon { color: #3b82f6 !important; }
+
+  /* Custom checkbox for Agents/Skills in global view (in main panel) */
+  .skill-agent-checkbox {
+    display: flex; align-items: center; justify-content: center;
+    position: relative; flex-shrink: 0;
+    width: 22px; height: 22px; cursor: pointer;
+    margin-right: 0.25rem;
+  }
+  .skill-agent-checkbox input {
+    position: absolute; opacity: 0; width: 0; height: 0;
+  }
+  .skill-agent-checkbox .checkmark {
+    width: 22px; height: 22px; border-radius: 6px;
+    border: 1.5px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.3); transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .skill-agent-checkbox input:checked ~ .checkmark {
+    background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(91,91,246,0.4);
+  }
+  .skill-agent-checkbox input:checked ~ .checkmark::after {
+    content: '';
+    width: 6px; height: 10px;
+    border: solid white; border-width: 0 2px 2px 0;
+    transform: rotate(45deg); margin-top: -2px;
+  }
+  .skill-agent-checkbox:hover .checkmark {
+    border-color: var(--accent);
+  }
 
   /* ── Main Tabs ─────────────────────────────────────────────────── */
   .main-tabs {
@@ -653,53 +939,72 @@ if (token) {
 
   /* ── Item Card ─────────────────────────────────────────────────── */
   .item-card {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0.75rem 1rem; border-radius: 12px;
-    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
-    transition: all 0.25s cubic-bezier(0.4,0,0.2,1); gap: 0.5rem;
+    display: flex; align-items: stretch; justify-content: space-between;
+    padding: 0.875rem 1.25rem; border-radius: 16px;
+    background: rgba(22, 22, 34, 0.4); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    gap: 1rem; position: relative; overflow: hidden;
+  }
+  .item-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 100%);
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
   }
   .item-card:hover {
-    background: rgba(255,255,255,0.05); border-color: rgba(91,91,246,0.25);
-    box-shadow: 0 4px 24px rgba(91,91,246,0.08), 0 0 0 1px rgba(91,91,246,0.1);
-    transform: translateY(-1px);
+    background: rgba(30,30,46,0.6);
+    border-color: rgba(91,91,246,0.3);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(91,91,246,0.1);
+    transform: translateY(-3px);
   }
+  .item-card:hover::before { opacity: 1; }
+  
+  /* Conditional borders on hovering specific cards */
+  .item-card.skill-card:hover { border-color: rgba(59,130,246,0.4); box-shadow: 0 12px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.15); }
+  .item-card.agent-card:hover { border-color: rgba(239,68,68,0.4); box-shadow: 0 12px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(239,68,68,0.15); }
 
   /* Icon Wrap — colored circle with SVG */
   .card-icon-wrap {
-    width: 40px; height: 40px; border-radius: 10px;
+    width: 44px; height: 44px; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: transform 0.2s;
+    flex-shrink: 0; transition: all 0.3s;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);
   }
-  .item-card:hover .card-icon-wrap { transform: scale(1.05); }
-  .cmd-icon { background: rgba(91,91,246,0.12); color: #818cf8; }
-  .skill-icon { background: rgba(52,211,153,0.12); color: #34d399; }
-  .agent-icon { background: rgba(251,146,60,0.12); color: #fb923c; }
+  .item-card:hover .card-icon-wrap { transform: scale(1.08) rotate(-3deg); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  
+  .cmd-icon { background: linear-gradient(135deg, rgba(91,91,246,0.2), rgba(139,92,246,0.1)); border-color: rgba(91,91,246,0.2); color: #a5b4fc; }
+  .skill-icon { background: linear-gradient(135deg, rgba(52,211,153,0.15), rgba(59,130,246,0.15)); border-color: rgba(59,130,246,0.2); color: #60a5fa; }
+  .agent-icon { background: linear-gradient(135deg, rgba(251,146,60,0.15), rgba(239,68,68,0.15)); border-color: rgba(239,68,68,0.2); color: #f87171; }
 
   .card-exec, .card-info-row {
-    display: flex; align-items: center; gap: 0.875rem; flex: 1; min-width: 0;
+    display: flex; align-items: center; gap: 1rem; flex: 1; min-width: 0;
     background: none; border: none; color: inherit; cursor: pointer; text-align: left; padding: 0;
   }
-  .card-body { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; flex: 1; }
+  .card-body { display: flex; flex-direction: column; gap: 0.375rem; min-width: 0; flex: 1; justify-content: center; }
   .card-name-row { display: flex; align-items: center; gap: 0.5rem; }
   .card-name {
-    font-size: 0.875rem; font-weight: 600; color: var(--text-primary);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s;
+    font-size: 0.9375rem; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.3s;
+    letter-spacing: 0.01em;
   }
   .card-meta {
-    font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4;
+    font-size: 0.8125rem; color: var(--text-muted); font-family: var(--font-mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.5;
   }
-  .card-exec:hover .card-name { color: var(--accent); }
+  .command-card .card-exec:hover .card-name { color: #a5b4fc; }
+  .skill-card .card-info-row:hover .card-name { color: #60a5fa; }
+  .agent-card .card-info-row:hover .card-name { color: #f87171; }
 
   /* Run indicator (commands only) */
   .card-run-indicator {
-    display: flex; align-items: center; gap: 0.25rem;
-    padding: 0.3rem 0.625rem; border-radius: 6px;
-    background: rgba(91,91,246,0.08); color: var(--accent);
-    font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-    opacity: 0; transition: all 0.2s; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; gap: 0.375rem;
+    padding: 0.4rem 0.875rem; border-radius: 8px;
+    background: rgba(91,91,246,0.1); color: #a5b4fc; border: 1px solid rgba(91,91,246,0.2);
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    transform: translateX(10px); opacity: 0; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); flex-shrink: 0;
   }
-  .card-exec:hover .card-run-indicator { opacity: 1; background: rgba(91,91,246,0.15); }
+  .card-exec:hover .card-run-indicator { transform: translateX(0); opacity: 1; background: rgba(91,91,246,0.2); box-shadow: 0 0 12px rgba(91,91,246,0.3); }
 
   /* Scope Pill */
   .scope-pill {
@@ -713,24 +1018,24 @@ if (token) {
   .scope-pill svg { flex-shrink: 0; }
 
   /* Action Buttons — SVG icon buttons */
-  .card-actions { display: flex; gap: 0.125rem; opacity: 0; transition: opacity 0.2s; flex-shrink: 0; }
-  .item-card:hover .card-actions { opacity: 1; }
+  .card-actions { display: flex; gap: 0.375rem; opacity: 0; transform: translateX(10px); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); flex-shrink: 0; }
+  .item-card:hover .card-actions { opacity: 1; transform: translateX(0); }
   .action-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 30px; height: 30px; border-radius: 8px;
-    background: transparent; border: none; color: var(--text-muted);
-    cursor: pointer; transition: all 0.15s;
+    width: 34px; height: 34px; border-radius: 10px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); color: var(--text-muted);
+    cursor: pointer; transition: all 0.2s;
   }
-  .action-btn:hover { color: var(--text-primary); }
-  .action-btn.edit-btn:hover { background: rgba(91,91,246,0.12); color: #818cf8; }
-  .action-btn.delete-btn:hover { background: rgba(239,68,68,0.12); color: #f87171; }
+  .action-btn:hover { color: var(--text-primary); transform: scale(1.05); }
+  .action-btn.edit-btn:hover { background: rgba(91,91,246,0.15); border-color: rgba(91,91,246,0.3); color: #a5b4fc; box-shadow: 0 4px 12px rgba(91,91,246,0.2); }
+  .action-btn.delete-btn:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.3); color: #fca5a5; box-shadow: 0 4px 12px rgba(239,68,68,0.2); }
 
   /* Empty state icon */
   .empty-icon {
-    width: 56px; height: 56px; border-radius: 14px;
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    width: 64px; height: 64px; border-radius: 16px;
+    background: linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); border: 1px solid rgba(255,255,255,0.05);
     display: flex; align-items: center; justify-content: center;
-    color: var(--text-muted); margin-bottom: 0.5rem;
+    color: var(--text-muted); margin-bottom: 0.75rem; box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);
   }
 
   /* ── Terminal Panel ────────────────────────────────────────────── */
@@ -789,5 +1094,10 @@ if (token) {
     .project-repo { display: none; }
     .scope-toggle { font-size: 0.7rem; }
     .scope-btn { padding: 0.3rem 0.5rem; }
+    .file-sidebar {
+      position: absolute; left: 0; top: 0; bottom: 0;
+      z-index: 50; box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+    }
+    .file-sidebar.open { width: 260px; min-width: 260px; max-width: 260px; }
   }
 </style>

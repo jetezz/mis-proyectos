@@ -270,8 +270,200 @@ const server = http.createServer(async (req, res) => {
     catch (e) { return error(`Delete failed: ${e.message}`, 500); }
   }
 
+  // ── FS Tree (Full project explorer) ───────────────────────────
+  if (url.pathname === '/fs-tree' && method === 'GET') {
+    const projectId = url.searchParams.get('projectId');
+    if (!projectId) return error('Missing projectId', 400);
+    let projectPath;
+    try { projectPath = guardPath(projectId); } catch (e) { return error(e.message, 400); }
+    if (!fs.existsSync(projectPath)) return error('Project not found', 404);
+
+    function buildDirTree(dirPath, relativePath = '') {
+      const result = [];
+      let entries = [];
+      try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch (e) { return []; }
+
+      // Sort: directories first, then alphabetically
+      entries.sort((a, b) => {
+        if (a.isDirectory() && !b.isDirectory()) return -1;
+        if (!a.isDirectory() && b.isDirectory()) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === '.git') continue;
+        const entryRelativePath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+          result.push({
+            name: entry.name,
+            path: entryRelativePath,
+            type: 'directory',
+            children: buildDirTree(path.join(dirPath, entry.name), entryRelativePath)
+          });
+        } else {
+          result.push({
+            name: entry.name,
+            path: entryRelativePath,
+            type: 'file'
+          });
+        }
+      }
+      return result;
+    }
+
+    try {
+      const tree = buildDirTree(projectPath);
+      return json({ tree });
+    } catch (e) {
+      return error(`Failed to read fs tree: ${e.message}`, 500);
+    }
+  }
+
+  // ── List .opencode files (agents + skills) ────────────────────
+  if (url.pathname === '/opencode-files' && method === 'GET') {
+    const projectId = url.searchParams.get('projectId');
+    if (!projectId) return error('Missing projectId', 400);
+
+    let opencodeDir;
+    if (projectId === '__global__') {
+      // Global .opencode directory at workspace root level
+      opencodeDir = path.join(WORKSPACE_BASE, '..', '.opencode');
+    } else {
+      let projectPath;
+      try { projectPath = guardPath(projectId); } catch (e) { return error(e.message, 400); }
+      if (!fs.existsSync(projectPath)) return error('Project not found', 404);
+      opencodeDir = path.join(projectPath, '.opencode');
+    }
+    const result = { agents: [], skills: [] };
+
+    function readOpenCodeDir(baseDir, type) {
+      const dir = path.join(baseDir, type);
+      if (!fs.existsSync(dir)) return [];
+      const items = [];
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.md')) {
+          const content = fs.readFileSync(path.join(dir, entry.name), 'utf8');
+          // Parse frontmatter
+          let name = entry.name.replace('.md', '');
+          let description = '';
+          const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+          if (fmMatch) {
+            const nameMatch = fmMatch[1].match(/name:\s*(.+)/);
+            const descMatch = fmMatch[1].match(/description:\s*(.+)/);
+            if (nameMatch) name = nameMatch[1].trim();
+            if (descMatch) description = descMatch[1].trim();
+          }
+          items.push({ filename: entry.name, name, description, type });
+        } else if (entry.isDirectory()) {
+          // Skill folders (contain SKILL.md)
+          const skillFile = path.join(dir, entry.name, 'SKILL.md');
+          if (fs.existsSync(skillFile)) {
+            const content = fs.readFileSync(skillFile, 'utf8');
+            let name = entry.name;
+            let description = '';
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+            if (fmMatch) {
+              const nameMatch = fmMatch[1].match(/name:\s*(.+)/);
+              const descMatch = fmMatch[1].match(/description:\s*(.+)/);
+              if (nameMatch) name = nameMatch[1].trim();
+              if (descMatch) description = descMatch[1].trim();
+            }
+            items.push({ filename: entry.name, name, description, type, isDirectory: true });
+          } else {
+            items.push({ filename: entry.name, name: entry.name, description: '', type, isDirectory: true });
+          }
+        }
+      }
+      return items;
+    }
+
+    result.agents = readOpenCodeDir(opencodeDir, 'agents');
+    result.skills = readOpenCodeDir(opencodeDir, 'skills');
+    return json(result);
+  }
+
+  // ── Add file to project .opencode (copy from global) ──────────
+  if (url.pathname === '/opencode-files' && method === 'POST') {
+    let body;
+    try { body = await parseBody(); } catch (e) { return error(e.message, 400); }
+    const { projectId, type, filename, sourceProjectId } = body;
+    if (!projectId || !type || !filename) return error('Missing required fields', 400);
+    if (!['agents', 'skills'].includes(type)) return error('Invalid type', 400);
+
+    let projectPath;
+    try { projectPath = guardPath(projectId); } catch (e) { return error(e.message, 400); }
+    if (!fs.existsSync(projectPath)) return error('Project not found', 404);
+
+    // Source: either global .opencode or another project's .opencode
+    let sourcePath;
+    if (sourceProjectId) {
+      let sourceBase;
+      try { sourceBase = guardPath(sourceProjectId); } catch (e) { return error(e.message, 400); }
+      sourcePath = path.join(sourceBase, '.opencode', type, filename);
+    } else {
+      // Global: look in the global .opencode directory at workspace root level
+      sourcePath = path.join(WORKSPACE_BASE, '..', '.opencode', type, filename);
+    }
+
+    if (!fs.existsSync(sourcePath)) return error('Source file not found', 404);
+
+    const destDir = path.join(projectPath, '.opencode', type);
+    fs.mkdirSync(destDir, { recursive: true });
+    const destPath = path.join(destDir, filename);
+
+    try {
+      // Copy file or directory
+      if (fs.statSync(sourcePath).isDirectory()) {
+        copyDirRecursive(sourcePath, destPath);
+      } else {
+        fs.copyFileSync(sourcePath, destPath);
+      }
+      return json({ status: 'added', filename });
+    } catch (e) {
+      return error(`Copy failed: ${e.message}`, 500);
+    }
+  }
+
+  // ── Remove file from project .opencode ─────────────────────────
+  if (url.pathname === '/opencode-files' && method === 'DELETE') {
+    let body;
+    try { body = await parseBody(); } catch (e) { return error(e.message, 400); }
+    const { projectId, type, filename } = body;
+    if (!projectId || !type || !filename) return error('Missing required fields', 400);
+    if (!['agents', 'skills'].includes(type)) return error('Invalid type', 400);
+
+    let projectPath;
+    try { projectPath = guardPath(projectId); } catch (e) { return error(e.message, 400); }
+    const targetPath = path.join(projectPath, '.opencode', type, filename);
+    if (!fs.existsSync(targetPath)) return error('File not found', 404);
+
+    try {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      return json({ status: 'removed', filename });
+    } catch (e) {
+      return error(`Remove failed: ${e.message}`, 500);
+    }
+  }
+
   return error('Not found', 404);
 });
+
+// ── Helper: recursive directory copy ──────────────────────────────
+function copyDirRecursive(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
 
 // ─── WebSocket PTY Server ─────────────────────────────────────────
 const wss = new WebSocketServer({ server, path: '/terminal' });
