@@ -5,3 +5,8 @@ node_modules/
 dist/
 .astro/
 projects/
+.playwright-mcp/
+*.db
+*.db-journal
+*.log
+.DS_Store
