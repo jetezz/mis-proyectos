@@ -1,0 +1,793 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { createSupabaseServerClient } from '../../lib/supabase-server';
+import { API_URL } from 'astro:env/server';
+
+const supabase = createSupabaseServerClient(Astro.request.headers, Astro.cookies);
+const { data: { user }, error: authError } = await supabase.auth.getUser();
+if (!user || authError) return Astro.redirect('/login');
+
+const projectId = Astro.params.id;
+if (!projectId || !/^[a-zA-Z0-9_-]{1,64}$/.test(projectId)) return Astro.redirect('/dashboard');
+
+const { data: { session } } = await supabase.auth.getSession();
+const token = session?.access_token;
+
+let projectName = 'Proyecto';
+let projectUrl = '';
+
+if (token) {
+  try {
+    const res = await fetch(`${API_URL}/projects`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const projects = await res.json();
+      const project = projects.find((p: any) => p.id === projectId);
+      if (!project) return Astro.redirect('/dashboard');
+      projectName = project.name;
+      projectUrl = project.repoUrl;
+    } else { return Astro.redirect('/dashboard'); }
+  } catch { return Astro.redirect('/dashboard'); }
+} else { return Astro.redirect('/login'); }
+---
+
+<Layout title={projectName}>
+  <header class="project-header">
+    <div class="header-left">
+      <a href="/dashboard" class="back-btn" id="back-btn" title="Volver al Dashboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </a>
+      <div class="project-info">
+        <h1 class="project-name">{projectName}</h1>
+        <span class="project-repo">{projectUrl}</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="terminal-status" class="term-badge">● Conectando...</span>
+      <button id="terminal-toggle" class="header-icon-btn" title="Toggle Terminal">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="project-layout">
+    <!-- Main Content Area -->
+    <main class="main-area" id="main-area">
+      <!-- Tab Navigation -->
+      <div class="main-tabs">
+        <button class="main-tab active" data-tab="commands" id="tab-commands">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span>Comandos</span>
+        </button>
+        <button class="main-tab" data-tab="skills" id="tab-skills">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          <span>Skills</span>
+        </button>
+        <button class="main-tab" data-tab="agents" id="tab-agents">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9 12l2 2 4-4"></path></svg>
+          <span>Agents</span>
+        </button>
+      </div>
+
+      <!-- Commands Panel -->
+      <div class="main-panel active" id="panel-commands">
+        <div class="panel-toolbar">
+          <h2>⚡ Comandos Rápidos</h2>
+          <button class="add-btn" id="add-command-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Nuevo
+          </button>
+        </div>
+        <div class="cards-grid" id="commands-list"></div>
+      </div>
+
+      <!-- Skills Panel -->
+      <div class="main-panel" id="panel-skills">
+        <div class="panel-toolbar">
+          <h2>📋 Skills</h2>
+          <div class="toolbar-right">
+            <div class="scope-toggle" id="skills-scope-toggle">
+              <button class="scope-btn active" data-scope="project" title="Solo este proyecto">📁 Proyecto</button>
+              <button class="scope-btn" data-scope="global" title="Compartido en todos los proyectos">🌐 Global</button>
+            </div>
+            <button class="add-btn" id="add-skill-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Nuevo
+            </button>
+          </div>
+        </div>
+        <div class="cards-grid" id="skills-list"></div>
+      </div>
+
+      <!-- Agents Panel -->
+      <div class="main-panel" id="panel-agents">
+        <div class="panel-toolbar">
+          <h2>🤖 Agents</h2>
+          <div class="toolbar-right">
+            <div class="scope-toggle" id="agents-scope-toggle">
+              <button class="scope-btn active" data-scope="project" title="Solo este proyecto">📁 Proyecto</button>
+              <button class="scope-btn" data-scope="global" title="Compartido en todos los proyectos">🌐 Global</button>
+            </div>
+            <button class="add-btn" id="add-agent-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              Nuevo
+            </button>
+          </div>
+        </div>
+        <div class="cards-grid" id="agents-list"></div>
+      </div>
+    </main>
+
+    <!-- Terminal Panel (bottom, collapsible) -->
+    <div class="terminal-panel" id="terminal-panel">
+      <div class="terminal-handle" id="terminal-handle">
+        <div class="handle-bar"></div>
+        <span class="handle-label">Terminal</span>
+        <div class="handle-bar"></div>
+      </div>
+      <div id="xterm-container"></div>
+    </div>
+  </div>
+
+  <!-- Create/Edit Modal (global overlay) -->
+  <div class="form-modal-overlay" id="form-modal" style="display:none;">
+    <div class="form-modal">
+      <div class="form-header">
+        <h3 id="form-title">Nuevo Comando</h3>
+        <button class="form-close-btn" id="form-close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label for="item-name">Nombre</label>
+          <input id="item-name" class="input" placeholder="Nombre del item" />
+        </div>
+        <div class="form-group" id="form-command-group">
+          <label for="item-command">Comando</label>
+          <input id="item-command" class="input" placeholder="npm run dev" />
+        </div>
+        <div class="form-group" id="form-content-group" style="display:none;">
+          <label for="item-content">Contenido</label>
+          <textarea id="item-content" class="input textarea-field" rows="8" placeholder="Instrucciones del skill o system prompt..."></textarea>
+        </div>
+        <div class="form-group">
+          <label for="item-description">Descripción (opcional)</label>
+          <input id="item-description" class="input" placeholder="Descripción breve" />
+        </div>
+        <div class="form-group" id="form-icon-group">
+          <label for="item-icon">Icono</label>
+          <input id="item-icon" class="input" placeholder="⚡" maxlength="2" style="width:70px;" />
+        </div>
+        <div class="form-group" id="form-scope-group" style="display:none;">
+          <label>Alcance</label>
+          <div class="scope-select">
+            <label class="scope-radio"><input type="radio" name="item-scope" value="project" checked /> 📁 Solo este proyecto</label>
+            <label class="scope-radio"><input type="radio" name="item-scope" value="global" /> 🌐 Global (todos los proyectos)</label>
+          </div>
+        </div>
+      </div>
+      <div class="form-footer">
+        <button id="form-cancel" class="btn btn-secondary">Cancelar</button>
+        <button id="form-save" class="btn btn-primary">Guardar</button>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script define:vars={{ projectId, projectName }}>
+  window.__PROJECT_ID__ = projectId;
+  window.__PROJECT_NAME__ = projectName;
+</script>
+
+<script>
+  import { supabase, getAccessToken } from '../../lib/supabase';
+  import { Terminal } from '@xterm/xterm';
+  import { FitAddon } from '@xterm/addon-fit';
+  import '@xterm/xterm/css/xterm.css';
+
+  const projectId = (window as any).__PROJECT_ID__ as string;
+
+  // ── Interfaces ──────────────────────────────────────────────────
+  interface CommandItem { id: string; name: string; command: string; description?: string; icon: string; }
+  interface SkillItem { id: string; name: string; content: string; description?: string; scope: 'project' | 'global'; }
+  interface AgentItem { id: string; name: string; systemPrompt: string; description?: string; model: string; scope: 'project' | 'global'; }
+
+  // ── Storage Keys ────────────────────────────────────────────────
+  const SK_COMMANDS = `oc-commands-${projectId}`;
+  const SK_SKILLS_PROJECT = `oc-skills-${projectId}`;
+  const SK_SKILLS_GLOBAL = `oc-skills-global`;
+  const SK_AGENTS_PROJECT = `oc-agents-${projectId}`;
+  const SK_AGENTS_GLOBAL = `oc-agents-global`;
+
+  // ── Data ────────────────────────────────────────────────────────
+  let commands: CommandItem[] = JSON.parse(localStorage.getItem(SK_COMMANDS) || '[]');
+  if (commands.length === 0 && !localStorage.getItem(SK_COMMANDS)) {
+    commands = [
+      { id: genId(), name: 'Install OpenCode', command: 'curl -fsSL https://opencode.ai/install | bash && source ~/.bashrc', description: 'Instala OpenCode en ESTE proyecto (aislado)', icon: '🚀' },
+      { id: genId(), name: 'Git Status', command: 'git status', description: 'Ver estado del repositorio', icon: '📊' },
+      { id: genId(), name: 'List Files', command: 'ls -la', description: 'Listar archivos del proyecto', icon: '📂' },
+    ];
+    localStorage.setItem(SK_COMMANDS, JSON.stringify(commands));
+  }
+
+  let skillsProject: SkillItem[] = JSON.parse(localStorage.getItem(SK_SKILLS_PROJECT) || '[]');
+  let skillsGlobal: SkillItem[] = JSON.parse(localStorage.getItem(SK_SKILLS_GLOBAL) || '[]');
+  let agentsProject: AgentItem[] = JSON.parse(localStorage.getItem(SK_AGENTS_PROJECT) || '[]');
+  let agentsGlobal: AgentItem[] = JSON.parse(localStorage.getItem(SK_AGENTS_GLOBAL) || '[]');
+
+  let currentSkillScope: 'project' | 'global' = 'project';
+  let currentAgentScope: 'project' | 'global' = 'project';
+
+  function genId() { return crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+  // ── Terminal ────────────────────────────────────────────────────
+  let term: Terminal | null = null;
+  let fitAddon: FitAddon | null = null;
+  let ws: WebSocket | null = null;
+  const xtermContainer = document.getElementById('xterm-container')!;
+  const termStatus = document.getElementById('terminal-status')!;
+  const terminalPanel = document.getElementById('terminal-panel')!;
+  let terminalCollapsed = false;
+
+  document.getElementById('terminal-toggle')?.addEventListener('click', () => {
+    terminalCollapsed = !terminalCollapsed;
+    terminalPanel.classList.toggle('collapsed', terminalCollapsed);
+    setTimeout(() => { if (fitAddon && term) { fitAddon.fit(); sendResize(); } }, 350);
+  });
+
+  document.getElementById('terminal-handle')?.addEventListener('click', () => {
+    if (terminalCollapsed) {
+      terminalCollapsed = false;
+      terminalPanel.classList.remove('collapsed');
+      setTimeout(() => { if (fitAddon && term) { fitAddon.fit(); sendResize(); } }, 350);
+    }
+  });
+
+  async function initTerminal() {
+    term = new Terminal({
+      theme: { background: '#0a0a0f', foreground: '#e0e0ff', cursor: '#5b5bf6', cursorAccent: '#0a0a0f', selectionBackground: 'rgba(91,91,246,0.3)', black: '#1a1a2e', red: '#ff5370', green: '#c3e88d', yellow: '#ffcb6b', blue: '#82aaff', magenta: '#c792ea', cyan: '#89ddff', white: '#e0e0ff', brightBlack: '#444466', brightRed: '#ff869a', brightGreen: '#ddffa7', brightYellow: '#ffe585', brightBlue: '#9cc4ff', brightMagenta: '#e1acff', brightCyan: '#a3f7ff', brightWhite: '#ffffff' },
+      fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", monospace',
+      fontSize: 13, lineHeight: 1.3, cursorBlink: true, cursorStyle: 'block', scrollback: 5000, allowProposedApi: true,
+    });
+    fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(xtermContainer);
+    await new Promise(r => setTimeout(r, 50));
+    fitAddon.fit();
+    setStatus('connecting');
+
+    const token = await getAccessToken();
+    if (!token) { term.writeln('\r\n\x1b[31mError: No authenticated session\x1b[0m'); setStatus('error'); return; }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname;
+    ws = new WebSocket(`${wsProtocol}//${wsHost}:3000/terminal?projectId=${encodeURIComponent(projectId)}&token=${encodeURIComponent(token)}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { setStatus('connected'); fitAddon!.fit(); sendResize(); };
+    ws.onmessage = (e) => { if (term) { typeof e.data === 'string' ? term.write(e.data) : term.write(new Uint8Array(e.data)); } };
+    ws.onclose = (e) => { if (term) term.writeln(`\r\n\x1b[33m[Sesión terminada: ${e.reason || 'conexión cerrada'}]\x1b[0m`); setStatus('disconnected'); ws = null; };
+    ws.onerror = () => { if (term) term.writeln('\r\n\x1b[31m[Error de conexión]\x1b[0m'); setStatus('error'); };
+    term.onData((data) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); });
+
+    new ResizeObserver(() => { if (fitAddon && term) { fitAddon.fit(); sendResize(); } }).observe(xtermContainer);
+    term.focus();
+  }
+
+  function sendResize() { if (ws?.readyState === WebSocket.OPEN && term) ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows })); }
+  function setStatus(s: 'connecting' | 'connected' | 'disconnected' | 'error') {
+    const m: Record<string, { t: string; c: string }> = { connecting: { t: '● Conectando...', c: '#f59e0b' }, connected: { t: '● Conectado', c: '#22c55e' }, disconnected: { t: '○ Desconectado', c: '#888' }, error: { t: '● Error', c: '#ef4444' } };
+    termStatus.textContent = m[s].t; termStatus.style.color = m[s].c;
+  }
+  function executeInTerminal(command: string) {
+    if (terminalCollapsed) { terminalCollapsed = false; terminalPanel.classList.remove('collapsed'); setTimeout(() => { if (fitAddon && term) { fitAddon.fit(); sendResize(); } }, 350); }
+    if (ws?.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({ type: 'input', data: command + '\r' })); term?.focus(); }
+  }
+
+  // ── Tabs ─────────────────────────────────────────────────────────
+  document.querySelectorAll('.main-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const t = (tab as HTMLElement).dataset.tab!;
+      document.querySelectorAll('.main-tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.main-panel').forEach(x => x.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(`panel-${t}`)?.classList.add('active');
+    });
+  });
+
+  // ── Scope Toggles ───────────────────────────────────────────────
+  document.querySelectorAll('.scope-toggle').forEach(toggle => {
+    toggle.querySelectorAll('.scope-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toggle.querySelectorAll('.scope-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const scope = (btn as HTMLElement).dataset.scope as 'project' | 'global';
+        if (toggle.id === 'skills-scope-toggle') { currentSkillScope = scope; renderSkills(); }
+        else { currentAgentScope = scope; renderAgents(); }
+      });
+    });
+  });
+
+  // ── Form Management ─────────────────────────────────────────────
+  const formModal = document.getElementById('form-modal')!;
+  const formTitle = document.getElementById('form-title')!;
+  const formName = document.getElementById('item-name') as HTMLInputElement;
+  const formCommand = document.getElementById('item-command') as HTMLInputElement;
+  const formContent = document.getElementById('item-content') as HTMLTextAreaElement;
+  const formDesc = document.getElementById('item-description') as HTMLInputElement;
+  const formIcon = document.getElementById('item-icon') as HTMLInputElement;
+  const formCmdGrp = document.getElementById('form-command-group')!;
+  const formContentGrp = document.getElementById('form-content-group')!;
+  const formIconGrp = document.getElementById('form-icon-group')!;
+  const formScopeGrp = document.getElementById('form-scope-group')!;
+
+  let currentFormType: 'command' | 'skill' | 'agent' = 'command';
+  let editingId: string | null = null;
+  let editingScope: 'project' | 'global' = 'project';
+
+  function showForm(type: 'command' | 'skill' | 'agent', item?: any) {
+    currentFormType = type;
+    editingId = item?.id || null;
+    editingScope = item?.scope || (type === 'skill' ? currentSkillScope : type === 'agent' ? currentAgentScope : 'project');
+
+    formName.value = item?.name || '';
+    formDesc.value = item?.description || '';
+    formCommand.value = item?.command || '';
+    formContent.value = item?.content || item?.systemPrompt || '';
+    formIcon.value = item?.icon || '⚡';
+
+    const scopeRadio = document.querySelector(`input[name="item-scope"][value="${editingScope}"]`) as HTMLInputElement;
+    if (scopeRadio) scopeRadio.checked = true;
+
+    if (type === 'command') {
+      formTitle.textContent = item ? 'Editar Comando' : 'Nuevo Comando';
+      formCmdGrp.style.display = 'block'; formContentGrp.style.display = 'none'; formIconGrp.style.display = 'block'; formScopeGrp.style.display = 'none';
+    } else if (type === 'skill') {
+      formTitle.textContent = item ? 'Editar Skill' : 'Nuevo Skill';
+      formCmdGrp.style.display = 'none'; formContentGrp.style.display = 'block'; formIconGrp.style.display = 'none'; formScopeGrp.style.display = 'block';
+      (document.querySelector('#form-content-group label') as HTMLElement).textContent = 'Contenido (Markdown)';
+    } else {
+      formTitle.textContent = item ? 'Editar Agent' : 'Nuevo Agent';
+      formCmdGrp.style.display = 'none'; formContentGrp.style.display = 'block'; formIconGrp.style.display = 'none'; formScopeGrp.style.display = 'block';
+      (document.querySelector('#form-content-group label') as HTMLElement).textContent = 'System Prompt';
+    }
+    formModal.style.display = 'flex';
+    formName.focus();
+  }
+
+  function hideForm() { formModal.style.display = 'none'; editingId = null; }
+
+  document.getElementById('form-save')?.addEventListener('click', () => {
+    const name = formName.value.trim();
+    if (!name) { formName.focus(); return; }
+    const scopeRadio = document.querySelector('input[name="item-scope"]:checked') as HTMLInputElement;
+    const scope = (scopeRadio?.value || 'project') as 'project' | 'global';
+
+    if (currentFormType === 'command') {
+      const command = formCommand.value.trim();
+      if (!command) { formCommand.focus(); return; }
+      const item: CommandItem = { id: editingId || genId(), name, command, description: formDesc.value.trim() || undefined, icon: formIcon.value.trim() || '⚡' };
+      if (editingId) commands = commands.map(c => c.id === editingId ? item : c);
+      else commands.push(item);
+      localStorage.setItem(SK_COMMANDS, JSON.stringify(commands));
+      renderCommands();
+    } else if (currentFormType === 'skill') {
+      const content = formContent.value.trim();
+      if (!content) { formContent.focus(); return; }
+      const item: SkillItem = { id: editingId || genId(), name, content, description: formDesc.value.trim() || undefined, scope };
+      if (editingId) {
+        // If scope changed, remove from old list and add to new
+        skillsProject = skillsProject.filter(s => s.id !== editingId);
+        skillsGlobal = skillsGlobal.filter(s => s.id !== editingId);
+      }
+      if (scope === 'global') { skillsGlobal.push(item); } else { skillsProject.push(item); }
+      localStorage.setItem(SK_SKILLS_PROJECT, JSON.stringify(skillsProject));
+      localStorage.setItem(SK_SKILLS_GLOBAL, JSON.stringify(skillsGlobal));
+      currentSkillScope = scope;
+      // Update scope toggle UI
+      document.querySelectorAll('#skills-scope-toggle .scope-btn').forEach(b => { b.classList.toggle('active', (b as HTMLElement).dataset.scope === scope); });
+      renderSkills();
+    } else {
+      const systemPrompt = formContent.value.trim();
+      if (!systemPrompt) { formContent.focus(); return; }
+      const item: AgentItem = { id: editingId || genId(), name, systemPrompt, description: formDesc.value.trim() || undefined, model: 'default', scope };
+      if (editingId) {
+        agentsProject = agentsProject.filter(a => a.id !== editingId);
+        agentsGlobal = agentsGlobal.filter(a => a.id !== editingId);
+      }
+      if (scope === 'global') { agentsGlobal.push(item); } else { agentsProject.push(item); }
+      localStorage.setItem(SK_AGENTS_PROJECT, JSON.stringify(agentsProject));
+      localStorage.setItem(SK_AGENTS_GLOBAL, JSON.stringify(agentsGlobal));
+      currentAgentScope = scope;
+      document.querySelectorAll('#agents-scope-toggle .scope-btn').forEach(b => { b.classList.toggle('active', (b as HTMLElement).dataset.scope === scope); });
+      renderAgents();
+    }
+    hideForm();
+  });
+
+  document.getElementById('form-cancel')?.addEventListener('click', hideForm);
+  document.getElementById('form-close')?.addEventListener('click', hideForm);
+  formModal.addEventListener('click', (e) => { if (e.target === formModal) hideForm(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideForm(); });
+
+  document.getElementById('add-command-btn')?.addEventListener('click', () => showForm('command'));
+  document.getElementById('add-skill-btn')?.addEventListener('click', () => showForm('skill'));
+  document.getElementById('add-agent-btn')?.addEventListener('click', () => showForm('agent'));
+
+  // ── SVG Icons ────────────────────────────────────────────────────
+  const ICONS = {
+    play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>',
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>',
+    trash: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>',
+    terminal: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>',
+    file: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>',
+    bot: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><circle cx="8" cy="16" r="1"></circle><circle cx="16" cy="16" r="1"></circle></svg>',
+    globe: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>',
+    folder: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>',
+  };
+
+  function actionBtns(id: string, type: string) {
+    return `<div class="card-actions">
+      <button class="action-btn edit-btn" data-id="${id}" data-type="${type}" title="Editar">${ICONS.edit}</button>
+      <button class="action-btn delete-btn" data-id="${id}" data-type="${type}" title="Eliminar">${ICONS.trash}</button>
+    </div>`;
+  }
+
+  function scopePill(scope: string) {
+    return scope === 'global'
+      ? `<span class="scope-pill global">${ICONS.globe} Global</span>`
+      : `<span class="scope-pill project">${ICONS.folder} Proyecto</span>`;
+  }
+
+  // ── Render Functions ────────────────────────────────────────────
+  function renderCommands() {
+    const el = document.getElementById('commands-list')!;
+    if (commands.length === 0) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-icon">' + ICONS.terminal + '</div><p>Sin comandos aún</p><small>Crea comandos reutilizables que se ejecutan en tu terminal con un click</small></div>';
+      return;
+    }
+    el.innerHTML = commands.map(c => `
+      <div class="item-card command-card" data-id="${c.id}">
+        <button class="card-exec" data-cmd="${esc(c.command)}" title="Click para ejecutar">
+          <div class="card-icon-wrap cmd-icon">${ICONS.terminal}</div>
+          <div class="card-body">
+            <span class="card-name">${h(c.name)}</span>
+            <span class="card-meta">${h(c.command)}</span>
+          </div>
+          <div class="card-run-indicator">${ICONS.play}<span>Run</span></div>
+        </button>
+        ${actionBtns(c.id, 'command')}
+      </div>
+    `).join('');
+    bindEvents(el);
+  }
+
+  function renderSkills() {
+    const el = document.getElementById('skills-list')!;
+    const items = currentSkillScope === 'global' ? skillsGlobal : skillsProject;
+    const scopeLabel = currentSkillScope === 'global' ? 'globales' : 'de este proyecto';
+    if (items.length === 0) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.file}</div><p>Sin skills ${scopeLabel}</p><small>${currentSkillScope === 'global' ? 'Los skills globales se comparten en todos tus proyectos' : 'Crea instrucciones y contexto para tus agentes'}</small></div>`;
+      return;
+    }
+    el.innerHTML = items.map(s => `
+      <div class="item-card skill-card" data-id="${s.id}">
+        <div class="card-info-row">
+          <div class="card-icon-wrap skill-icon">${ICONS.file}</div>
+          <div class="card-body">
+            <div class="card-name-row">
+              <span class="card-name">${h(s.name)}</span>
+              ${scopePill(s.scope)}
+            </div>
+            <span class="card-meta">${h((s.description || s.content.slice(0, 100)) + (s.content.length > 100 ? '...' : ''))}</span>
+          </div>
+        </div>
+        ${actionBtns(s.id, 'skill')}
+      </div>
+    `).join('');
+    bindEvents(el);
+  }
+
+  function renderAgents() {
+    const el = document.getElementById('agents-list')!;
+    const items = currentAgentScope === 'global' ? agentsGlobal : agentsProject;
+    const scopeLabel = currentAgentScope === 'global' ? 'globales' : 'de este proyecto';
+    if (items.length === 0) {
+      el.innerHTML = `<div class="empty-state"><div class="empty-icon">${ICONS.bot}</div><p>Sin agents ${scopeLabel}</p><small>${currentAgentScope === 'global' ? 'Los agents globales se comparten en todos tus proyectos' : 'Configura agentes IA con prompts personalizados'}</small></div>`;
+      return;
+    }
+    el.innerHTML = items.map(a => `
+      <div class="item-card agent-card" data-id="${a.id}">
+        <div class="card-info-row">
+          <div class="card-icon-wrap agent-icon">${ICONS.bot}</div>
+          <div class="card-body">
+            <div class="card-name-row">
+              <span class="card-name">${h(a.name)}</span>
+              ${scopePill(a.scope)}
+            </div>
+            <span class="card-meta">${h((a.description || a.systemPrompt.slice(0, 100)) + (a.systemPrompt.length > 100 ? '...' : ''))}</span>
+          </div>
+        </div>
+        ${actionBtns(a.id, 'agent')}
+      </div>
+    `).join('');
+    bindEvents(el);
+  }
+
+  function bindEvents(el: HTMLElement) {
+    el.querySelectorAll('.card-exec').forEach(btn => {
+      btn.addEventListener('click', () => executeInTerminal((btn as HTMLElement).dataset.cmd!));
+    });
+    el.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.id!;
+        const type = (btn as HTMLElement).dataset.type as 'command' | 'skill' | 'agent';
+        let item;
+        if (type === 'command') item = commands.find(c => c.id === id);
+        else if (type === 'skill') item = [...skillsProject, ...skillsGlobal].find(s => s.id === id);
+        else item = [...agentsProject, ...agentsGlobal].find(a => a.id === id);
+        if (item) showForm(type, item);
+      });
+    });
+    el.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.id!;
+        const type = (btn as HTMLElement).dataset.type as 'command' | 'skill' | 'agent';
+        if (!confirm('¿Eliminar este item?')) return;
+        if (type === 'command') { commands = commands.filter(c => c.id !== id); localStorage.setItem(SK_COMMANDS, JSON.stringify(commands)); renderCommands(); }
+        else if (type === 'skill') {
+          skillsProject = skillsProject.filter(s => s.id !== id); skillsGlobal = skillsGlobal.filter(s => s.id !== id);
+          localStorage.setItem(SK_SKILLS_PROJECT, JSON.stringify(skillsProject)); localStorage.setItem(SK_SKILLS_GLOBAL, JSON.stringify(skillsGlobal)); renderSkills();
+        } else {
+          agentsProject = agentsProject.filter(a => a.id !== id); agentsGlobal = agentsGlobal.filter(a => a.id !== id);
+          localStorage.setItem(SK_AGENTS_PROJECT, JSON.stringify(agentsProject)); localStorage.setItem(SK_AGENTS_GLOBAL, JSON.stringify(agentsGlobal)); renderAgents();
+        }
+      });
+    });
+  }
+
+  function h(s: string) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function esc(s: string) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ── Init ────────────────────────────────────────────────────────
+  renderCommands();
+  renderSkills();
+  renderAgents();
+  initTerminal();
+</script>
+
+<style>
+  /* ── Header ────────────────────────────────────────────────────── */
+  .project-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1rem; height: 48px;
+    background: rgba(10,10,15,0.95); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+  }
+  .header-left { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+  .back-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    color: var(--text-secondary); transition: all 0.2s; flex-shrink: 0;
+  }
+  .back-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+  .project-info { display: flex; flex-direction: column; min-width: 0; }
+  .project-name { font-size: 0.875rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-repo { font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-right { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+  .term-badge { font-size: 0.7rem; font-family: var(--font-mono); white-space: nowrap; }
+  .header-icon-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-secondary); transition: all 0.2s; cursor: pointer;
+  }
+  .header-icon-btn:hover { background: var(--bg-card-hover); color: var(--accent); border-color: var(--accent); }
+
+  /* ── Layout ────────────────────────────────────────────────────── */
+  .project-layout {
+    display: flex; flex-direction: column; height: calc(100vh - 48px); overflow: hidden;
+  }
+  .main-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+
+  /* ── Main Tabs ─────────────────────────────────────────────────── */
+  .main-tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border);
+    background: rgba(12,12,20,0.8); flex-shrink: 0; padding: 0 1rem;
+  }
+  .main-tab {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.75rem 1.25rem; font-size: 0.875rem; font-weight: 500;
+    color: var(--text-muted); background: transparent; border: none;
+    border-bottom: 2px solid transparent; transition: all 0.2s; cursor: pointer;
+  }
+  .main-tab:hover { color: var(--text-secondary); background: rgba(91,91,246,0.04); }
+  .main-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .main-tab svg { opacity: 0.6; }
+  .main-tab.active svg { opacity: 1; }
+
+  /* ── Panels ────────────────────────────────────────────────────── */
+  .main-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .main-panel.active { display: flex; }
+  .panel-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.5rem; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .panel-toolbar h2 { font-size: 1.125rem; font-weight: 600; }
+  .toolbar-right { display: flex; align-items: center; gap: 0.75rem; }
+
+  .add-btn {
+    display: flex; align-items: center; gap: 0.375rem;
+    padding: 0.5rem 1rem; border-radius: var(--radius-sm);
+    background: var(--accent); color: white; border: none;
+    font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: all 0.2s;
+  }
+  .add-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+
+  /* ── Scope Toggle ──────────────────────────────────────────────── */
+  .scope-toggle {
+    display: flex; border-radius: var(--radius-sm); overflow: hidden;
+    border: 1px solid var(--border); background: rgba(10,10,15,0.6);
+  }
+  .scope-btn {
+    padding: 0.375rem 0.75rem; font-size: 0.75rem; font-weight: 500;
+    background: transparent; border: none; color: var(--text-muted);
+    cursor: pointer; transition: all 0.2s; white-space: nowrap;
+  }
+  .scope-btn:first-child { border-right: 1px solid var(--border); }
+  .scope-btn:hover { color: var(--text-secondary); background: rgba(91,91,246,0.06); }
+  .scope-btn.active { background: rgba(91,91,246,0.15); color: var(--accent); }
+
+  /* ── Cards Grid ────────────────────────────────────────────────── */
+  .cards-grid {
+    flex: 1; overflow-y: auto; padding: 1rem 1.5rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 3rem 1rem; color: var(--text-muted); gap: 0.5rem; flex: 1;
+  }
+  .empty-state p { font-size: 1rem; font-weight: 500; }
+  .empty-state small { font-size: 0.8125rem; opacity: 0.7; }
+
+  /* ── Item Card ─────────────────────────────────────────────────── */
+  .item-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 1rem; border-radius: 12px;
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    transition: all 0.25s cubic-bezier(0.4,0,0.2,1); gap: 0.5rem;
+  }
+  .item-card:hover {
+    background: rgba(255,255,255,0.05); border-color: rgba(91,91,246,0.25);
+    box-shadow: 0 4px 24px rgba(91,91,246,0.08), 0 0 0 1px rgba(91,91,246,0.1);
+    transform: translateY(-1px);
+  }
+
+  /* Icon Wrap — colored circle with SVG */
+  .card-icon-wrap {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: transform 0.2s;
+  }
+  .item-card:hover .card-icon-wrap { transform: scale(1.05); }
+  .cmd-icon { background: rgba(91,91,246,0.12); color: #818cf8; }
+  .skill-icon { background: rgba(52,211,153,0.12); color: #34d399; }
+  .agent-icon { background: rgba(251,146,60,0.12); color: #fb923c; }
+
+  .card-exec, .card-info-row {
+    display: flex; align-items: center; gap: 0.875rem; flex: 1; min-width: 0;
+    background: none; border: none; color: inherit; cursor: pointer; text-align: left; padding: 0;
+  }
+  .card-body { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; flex: 1; }
+  .card-name-row { display: flex; align-items: center; gap: 0.5rem; }
+  .card-name {
+    font-size: 0.875rem; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s;
+  }
+  .card-meta {
+    font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.4;
+  }
+  .card-exec:hover .card-name { color: var(--accent); }
+
+  /* Run indicator (commands only) */
+  .card-run-indicator {
+    display: flex; align-items: center; gap: 0.25rem;
+    padding: 0.3rem 0.625rem; border-radius: 6px;
+    background: rgba(91,91,246,0.08); color: var(--accent);
+    font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    opacity: 0; transition: all 0.2s; flex-shrink: 0;
+  }
+  .card-exec:hover .card-run-indicator { opacity: 1; background: rgba(91,91,246,0.15); }
+
+  /* Scope Pill */
+  .scope-pill {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.15rem 0.5rem; border-radius: 100px;
+    font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    flex-shrink: 0; line-height: 1;
+  }
+  .scope-pill.global { background: rgba(99,102,241,0.12); color: #818cf8; }
+  .scope-pill.project { background: rgba(52,211,153,0.1); color: #34d399; }
+  .scope-pill svg { flex-shrink: 0; }
+
+  /* Action Buttons — SVG icon buttons */
+  .card-actions { display: flex; gap: 0.125rem; opacity: 0; transition: opacity 0.2s; flex-shrink: 0; }
+  .item-card:hover .card-actions { opacity: 1; }
+  .action-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 8px;
+    background: transparent; border: none; color: var(--text-muted);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .action-btn:hover { color: var(--text-primary); }
+  .action-btn.edit-btn:hover { background: rgba(91,91,246,0.12); color: #818cf8; }
+  .action-btn.delete-btn:hover { background: rgba(239,68,68,0.12); color: #f87171; }
+
+  /* Empty state icon */
+  .empty-icon {
+    width: 56px; height: 56px; border-radius: 14px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-muted); margin-bottom: 0.5rem;
+  }
+
+  /* ── Terminal Panel ────────────────────────────────────────────── */
+  .terminal-panel {
+    height: 220px; min-height: 80px; flex-shrink: 0;
+    background: #0a0a0f; border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+    overflow: hidden;
+  }
+  .terminal-panel.collapsed { height: 36px; min-height: 36px; }
+  .terminal-handle {
+    display: flex; align-items: center; gap: 0.5rem; justify-content: center;
+    padding: 0.375rem 0; cursor: pointer; flex-shrink: 0; user-select: none;
+  }
+  .handle-bar { width: 40px; height: 2px; background: rgba(255,255,255,0.12); border-radius: 2px; }
+  .handle-label { font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  #xterm-container { flex: 1; overflow: hidden; padding: 0 6px 6px; background: #0a0a0f; }
+  #xterm-container :global(.xterm) { height: 100%; }
+  #xterm-container :global(.xterm-viewport) { background: transparent !important; }
+  #xterm-container :global(.xterm-screen) { width: 100% !important; }
+
+  /* ── Form Modal ────────────────────────────────────────────────── */
+  .form-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center; z-index: 200;
+  }
+  .form-modal {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+    width: 95%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .form-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+  }
+  .form-header h3 { font-size: 1rem; font-weight: 600; }
+  .form-close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.25rem; border-radius: 4px; }
+  .form-close-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+  .form-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.875rem; }
+  .form-group { display: flex; flex-direction: column; gap: 0.375rem; }
+  .form-group label { font-size: 0.8125rem; font-weight: 500; color: var(--text-secondary); }
+  .textarea-field { resize: vertical; min-height: 120px; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; }
+  .form-footer { display: flex; gap: 0.5rem; justify-content: flex-end; padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
+
+  .scope-select { display: flex; flex-direction: column; gap: 0.5rem; }
+  .scope-radio { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--text-secondary); cursor: pointer; }
+  .scope-radio input[type="radio"] { accent-color: var(--accent); }
+
+  /* ── Responsive ────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .panel-toolbar { padding: 0.75rem 1rem; flex-wrap: wrap; gap: 0.5rem; }
+    .cards-grid { padding: 0.75rem; }
+    .main-tab span { display: none; }
+    .main-tab { padding: 0.75rem 1rem; }
+    .project-repo { display: none; }
+    .scope-toggle { font-size: 0.7rem; }
+    .scope-btn { padding: 0.3rem 0.5rem; }
+  }
+</style>

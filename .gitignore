@@ -1,0 +1,7 @@
+workspace/projects/*
+!workspace/projects/.gitkeep
+.env
+node_modules/
+dist/
+.astro/
+projects/

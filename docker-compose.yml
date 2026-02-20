@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:4321"
+    environment:
+      - NODE_ENV=production
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - API_URL=http://api:3000
+    depends_on:
+      - api
+    networks:
+      - internal
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
+      - SANDBOX_URL=http://sandbox:4000
+    networks:
+      - internal
+    depends_on:
+      - sandbox
+    restart: unless-stopped
+    # Sin 'ports' — no expuesto al host
+
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    volumes:
+      - ./workspace/projects:/workspace/projects
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: false
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    # Sin 'ports' — no expuesto al host
+
+networks:
+  internal:
+    driver: bridge

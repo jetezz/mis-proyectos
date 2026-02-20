@@ -1,0 +1,54 @@
+version: "3.9"
+
+# Compose de DESARROLLO — expone API y sandbox para debugging
+services:
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "4321:4321"
+    environment:
+      - NODE_ENV=development
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - API_URL=http://api:3000
+    depends_on:
+      - api
+    volumes:
+      - ./frontend/src:/app/src  # Hot reload en dev
+    networks:
+      - internal
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"  # Expuesto en dev para testing directo
+    environment:
+      - NODE_ENV=development
+      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
+      - SANDBOX_URL=http://sandbox:4000
+    volumes:
+      - ./api/src:/app/src  # Hot reload en dev
+    networks:
+      - internal
+    depends_on:
+      - sandbox
+
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"  # Expuesto en dev para debugging
+    volumes:
+      - ./workspace/projects:/workspace/projects
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
