@@ -10,3 +10,4 @@ projects/
 *.db-journal
 *.log
 .DS_Store
+supabase/
